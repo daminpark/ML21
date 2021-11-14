@@ -162,11 +162,11 @@ class NetClassifier():
         h=W1.shape[1]
         cost=c
 
-        a=X@W1
-        b=b1+a
-        c=relu(b)
-        d=c@W2
-        z=b2+d
+        a=X@W1 #1xm, mxh, 1xh
+        b=b1+a #1xh
+        c=relu(b) #1xh
+        d=c@W2 #1xh, hxk, 1xk
+        z=b2+d #1xk
         
         softmax_z=softmax(z)
         vector=np.zeros(y.shape)
@@ -178,44 +178,31 @@ class NetClassifier():
         ### END CODE
         
         ### YOUR CODE HERE - BACKWARDS PASS - compute derivatives of all weights and bias, store them in d_w1, d_w2' d_w2, d_b1, d_b2
-        d_LWD=1
-        #L with weight decay
-        d_L=d_LWD
-        d_LV=d_L*(1/n)*(np.ones(n).reshape(1,-1))
-        zHatPrime = np.zeros([n,n*k])
-        for i in np.arange(0,n):
-            zHatPrime[i,(i*k):(i+1)*k]=(-labels+softmax_z)[i,:]
-        d_zHat=d_LV@zHatPrime
-        #d_z=d_zHat.reshape(n,k)
-        b2Prime=np.zeros([n*k,k])
-        for i in np.arange(0,k):
-            b2Prime[i*n:(i+1)*n,i]=1
-        d_b2=(d_zHat@b2Prime).reshape(b2.shape)
-        d_d=d_zHat
-        w2HatPrime=np.zeros([n*k,h*k])
-        for i in np.arange(0,n*k):
-            for j in np.arange(0,h*k):
-                if i%k==j%k:
-                    w2HatPrime[i,j]=c[i//k,j//k]
-        d_w2=(d_d@w2HatPrime).reshape(W2.shape) + 2*cost*W2
-        c2HatPrime=np.zeros([n*k,n*h])
-        for i in np.arange(0,n*k):
-            for j in np.arange(0,n*h):
-                if i//k==j//h:
-                    c2HatPrime[i,j]=W2[j%h,i%k]
-        d_c=d_d@c2HatPrime
-        d_b=d_c@(np.diag(b.reshape(-1)>0))
-        b1prime=np.zeros([n*h,h])
-        for i in np.arange(0,n):
-            b1prime[i*h:(i+1)*h,:]=np.identity(h)
-        d_b1=(d_b@b1prime).reshape(b1.shape)
-        d_a=d_b
-        w1HatPrime=np.zeros([n*h,m*h])
-        for i in np.arange(0,n*h):
-            for j in np.arange(0,m*h):
-                if i%h==j%h:
-                    w1HatPrime[i,j]=X[(i//h),(j//h)]
-        d_w1=(d_a@w1HatPrime).reshape(W1.shape) + 2*cost*W1
+        d_w1=[]
+        d_w2=[]
+        d_b1=[]
+        d_b2=[]
+        for iter in np.arange(n):
+            d_L=1
+            d_z=d_L*(softmax_z[iter,:] - labels[iter,:]) #1xk
+            d_b2.append(d_z) #1xk
+            d_d=d_z #1xk
+            store_w2=np.zeros([h,k])
+            for i in np.arange(h):
+                store_w2[i,:]=c[iter,i]*d_d
+            d_w2.append(store_w2)
+            d_c=d_d@np.transpose(W2)#1xh
+            d_b=d_c@(np.diag(b[iter,:].reshape(-1)>0))#1xh
+            d_b1.append(d_b)
+            d_a=d_b #1xh
+            store_w1=np.zeros([m,h])
+            for i in np.arange(m):
+                store_w1[i,:]=X[iter,i]*d_a
+            d_w1.append(store_w1)
+        d_w1=sum(d_w1)/n+2*cost*W1
+        d_w2=sum(d_w2)/n+2*cost*W2
+        d_b1=(sum(d_b1)/n).reshape(1,-1)
+        d_b2=(sum(d_b2)/n).reshape(1,-1)
         ### END CODE
         # the return signature
         return L, {'d_w1': d_w1, 'd_w2': d_w2, 'd_b1': d_b1, 'd_b2': d_b2}
@@ -255,19 +242,7 @@ class NetClassifier():
 
         
         ### YOUR CODE HERE
-        Y=np.reshape(Y,(-1,1))
-        X_with_Y=np.append(X,Y,axis=1)
-        Y=np.reshape(Y,-1)
-        for i in range(epochs):
-            X_with_Y_permuted=np.random.permutation(X_with_Y)
-            permuted_X=X_with_Y_permuted[:,:-1]
-            permuted_Y=X_with_Y_permuted[:,-1]
-            for j in range(X.shape[0]//batch_size):
-                _,gradient=self.cost_grad(permuted_X[j*batch_size:(j+1)*batch_size,:],permuted_Y[j*batch_size:(j+1)*batch_size].astype(int),W)
-                W-=lr*gradient
-            _,smallg=self.cost_grad(permuted_X[-X.shape[0]%batch_size:,:],permuted_Y[-X.shape[0]%batch_size:].astype(int),W)#compute gradient on the remainder
-            W-=lr*smallg
-            history.append(self.cost_grad(X,Y,W)[0])
+        
         ### END CODE
         # hist dict should look like this with something different than none
         #hist = {'train_loss': None, 'train_acc': None, 'val_loss': None, 'val_acc': None}
@@ -286,7 +261,6 @@ def numerical_grad_check(f, x, key):
     it = np.nditer(x, flags=['multi_index'])
     while not it.finished:    
         dim = it.multi_index    
-        print(dim)
         tmp = x[dim]
         x[dim] = tmp + h
         cplus, _ = f(x)
